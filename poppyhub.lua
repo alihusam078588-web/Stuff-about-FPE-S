@@ -5,6 +5,7 @@ local function Notify()
       Icon = "megaphone",
     Duration = 3
 })
+end
 local anim = game:GetService("ReplicatedStorage").Events:FindFirstChild("AntiCheatTrigger")
 
 if anim then
