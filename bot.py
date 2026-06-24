@@ -10,7 +10,7 @@ def get_twisted_of_the_day():
     """
     Scrapes the Dandy's World Wiki page to find the current Twisted on the board.
     """
-    wiki_url = "https://dandys-world-robloxhorror.fandom.com/wiki/Daily_Twisted_Board"
+    wiki_url = "https://dandys-world.fandom.com/wiki/Daily_Twisted_Board"
     
     try:
         response = requests.get(wiki_url)
