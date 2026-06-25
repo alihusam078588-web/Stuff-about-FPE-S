@@ -8,7 +8,8 @@ WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 def get_twisted_of_the_day():
     """
-    Scrapes the Miraheze Dandy's World wiki to find the current active Twisted.
+    Finds the exact anchor text "is more likely to spawn until" on the Miraheze wiki,
+    and extracts the Twisted name right before it.
     """
     wiki_url = "https://dandysworld.miraheze.org/wiki/Daily_Twisted_Board"
     headers = {
@@ -20,26 +21,35 @@ def get_twisted_of_the_day():
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Search all elements for the phrase containing the active character
-            for element in soup.find_all(['p', 'div', 'li', 'span']):
-                text = element.get_text().strip()
+            # Get ALL the text on the page as one single continuous block
+            page_text = soup.get_text()
+            
+            # Look for your "Read phrase" anchor
+            anchor_phrase = "is more likely to spawn until"
+            
+            if anchor_phrase in page_text:
+                # Split the entire page text at the anchor phrase
+                # parts[0] will contain everything BEFORE "is more likely to spawn until"
+                parts = page_text.split(anchor_phrase)
+                text_before_anchor = parts[0].strip()
                 
-                if "is more likely to spawn until" in text:
-                    # Example: "Twisted Finn is more likely to spawn until June 13th, 7:00 PM EST."
-                    # Split at "is more likely" to isolate everything before it
-                    name_part = text.split("is more likely")[0].strip()
+                # Take the very last line of text right before our anchor phrase
+                lines = text_before_anchor.split('\n')
+                last_line = lines[-1].strip()
+                
+                # If there are trailing spaces or weird symbols, clean down to the name
+                if "Twisted" in last_line:
+                    # Isolate from the word "Twisted" onward
+                    start_pos = last_line.find("Twisted")
+                    clean_name = last_line[start_pos:].strip()
                     
-                    # Clean up any leftover line breaks or extra spacing
-                    clean_name = name_part.split('\n')[-1].strip()
+                    desc = f"The Daily Twisted Board has updated! **{clean_name}** has an increased spawn rate right now."
+                    return clean_name, desc
                     
-                    if clean_name.startswith("Twisted"):
-                        desc = f"The Daily Twisted Board has updated! **{clean_name}** has an increased spawn rate right now."
-                        return clean_name, desc
-                        
     except Exception as e:
         print(f"Scraping error: {e}")
         
-    return "Unknown Character", "The script couldn't find the character text block. The wiki page layout may have been modified!"
+    return "Unknown Character", "The script checked the page but couldn't locate the active character sentence block."
 
 def send_discord_webhook(twisted_name, description):
     if not WEBHOOK_URL:
