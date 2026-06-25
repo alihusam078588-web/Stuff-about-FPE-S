@@ -11,7 +11,7 @@ def get_twisted_of_the_day():
     Finds the exact anchor text "is more likely to spawn until" on the Miraheze wiki,
     and extracts the Twisted name right before it.
     """
-    wiki_url = "https://dandysworld.miraheze.org/wiki/Daily_Twisted_Board"
+    wiki_url = "https://dandysworld.miraheze.org/wiki/Daily_Twisted_Board#Daily_Twisted_Board"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
