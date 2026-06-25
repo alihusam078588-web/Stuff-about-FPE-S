@@ -8,10 +8,9 @@ WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 def get_twisted_of_the_day():
     """
-    Scrapes the exact Dandy's World Wiki URL provided to pull the active character name,
-    completely ignoring the live countdown timers and hidden icon objects.
+    Scrapes the Miraheze Dandy's World wiki to find the current active Twisted.
     """
-    wiki_url = "https://dandys-world-robloxhorror.fandom.com/wiki/Daily_Twisted_Board"
+    wiki_url = "https://dandysworld.miraheze.org/wiki/Daily_Twisted_Board"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
@@ -21,55 +20,43 @@ def get_twisted_of_the_day():
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Strategy 1: Look through text blocks for the main tracking announcement line
-            for element in soup.find_all(['p', 'div', 'td']):
-                raw_text = element.get_text()
-                if "board is occupied by" in raw_text:
-                    # Isolate text elements that appear right after the phrase 'occupied by'
-                    parts = raw_text.split("occupied by")
-                    if len(parts) > 1:
-                        after_phrase = parts[1]
-                        if "Twisted" in after_phrase:
-                            # Pinpoint exactly where the name keyword text segment begins
-                            start_index = after_phrase.find("Twisted")
-                            remaining_segment = after_phrase[start_index:]
-                            
-                            # Chop off the text at a period, a new line, or when the live countdown statement starts
-                            clean_name = remaining_segment.split(".")[0].split("\n")[0].split("It will")[0].strip()
-                            
-                            if clean_name:
-                                desc = f"The Daily Twisted Board has updated! Go in-game to hunt down **{clean_name}** while their spawn chance is boosted."
-                                return clean_name, desc
-
-            # Strategy 2: Fallback to the right-side profile widget card box if Strategy 1 misses
-            for box in soup.find_all(['div', 'aside', 'table']):
-                box_text = box.get_text()
-                if "Twisted of the Day" in box_text:
-                    lines = [line.strip() for line in box_text.split('\n') if line.strip()]
-                    for item in lines:
-                        if item.startswith("Twisted ") and "Day" not in item:
-                            desc = f"Today's active character is **{item}**. Watch your back out on the floors!"
-                            return item, desc
-                                
+            # Search all elements for the phrase containing the active character
+            for element in soup.find_all(['p', 'div', 'li', 'span']):
+                text = element.get_text().strip()
+                
+                if "is more likely to spawn until" in text:
+                    # Example: "Twisted Finn is more likely to spawn until June 13th, 7:00 PM EST."
+                    # Split at "is more likely" to isolate everything before it
+                    name_part = text.split("is more likely")[0].strip()
+                    
+                    # Clean up any leftover line breaks or extra spacing
+                    clean_name = name_part.split('\n')[-1].strip()
+                    
+                    if clean_name.startswith("Twisted"):
+                        desc = f"The Daily Twisted Board has updated! **{clean_name}** has an increased spawn rate right now."
+                        return clean_name, desc
+                        
     except Exception as e:
-        print(f"Scraping analysis exception: {e}")
+        print(f"Scraping error: {e}")
         
-    return "Unknown Character", "The script encountered an unexpected layout change on the Wiki page. Check the live site directly!"
+    return "Unknown Character", "The script couldn't find the character text block. The wiki page layout may have been modified!"
 
 def send_discord_webhook(twisted_name, description):
     if not WEBHOOK_URL:
-        print("Error: The DISCORD_WEBHOOK_URL environment variable is missing!")
+        print("Error: DISCORD_WEBHOOK_URL variable is missing!")
         return
 
-    # Assign distinct color themes based on who is occupying the board today
-    embed_color = 15158332  # Default Warning Orange/Red
-    if "Toodles" in twisted_name:
-        embed_color = 3447003  # Vivid Blue
+    # Choose a custom embed color matching the character
+    embed_color = 15158332  # Default Red/Orange
+    if "Finn" in twisted_name:
+        embed_color = 3447003  # Light Blue for Finn
     elif "Sprout" in twisted_name:
-        embed_color = 3066993  # Forest Green
+        embed_color = 3066993  # Green for Sprout
+    elif "Toodles" in twisted_name:
+        embed_color = 10181046  # Purple/Pink for Toodles
 
     payload = {
-        "content": "📢 **The Daily Twisted Board Has Refreshed!** 📢",
+        "content": "📢 **The Daily Twisted Board Has Safely Refreshed!** 📢",
         "embeds": [
             {
                 "title": f"✨ Current Target: {twisted_name} ✨",
@@ -78,7 +65,7 @@ def send_discord_webhook(twisted_name, description):
                 "fields": [
                     {
                         "name": "Status Indicator",
-                        "value": "🟢 Spawn Rate Multiplier Active",
+                        "value": "🟢 Spawn Rate Boost Active",
                         "inline": True
                     },
                     {
@@ -88,7 +75,7 @@ def send_discord_webhook(twisted_name, description):
                     }
                 ],
                 "footer": {
-                    "text": "Dandy's World Automated Tracking Profile"
+                    "text": "Dandy's World Miraheze Updates"
                 },
                 "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             }
@@ -99,7 +86,7 @@ def send_discord_webhook(twisted_name, description):
     if response.status_code == 204:
         print(f"Successfully posted {twisted_name} notice straight to Discord!")
     else:
-        print(f"Failed to submit webhook payload request. Error code: {response.status_code}")
+        print(f"Failed to send webhook. Response code: {response.status_code}")
 
 if __name__ == "__main__":
     name, desc = get_twisted_of_the_day()
