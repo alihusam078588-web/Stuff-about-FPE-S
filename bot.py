@@ -5,7 +5,6 @@ import random
 import requests
 from bs4 import BeautifulSoup
 
-# Grabs your URL securely from GitHub Secrets
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 WIKI_DOMAIN = "https://dandys-world-robloxhorror.fandom.com"
 WIKI_PAGE = "Daily Twisted Board"
@@ -18,9 +17,12 @@ HEADERS = {
     "Pragma": "no-cache",
 }
 
+# Note: image alt text (e.g. "Twisted Toodles Render") is NOT part of
+# soup.get_text() output, so these patterns must NOT rely on "Render"
+# appearing in the text — only the visible link text is captured.
 ANCHOR_PATTERNS = [
-    r"Currently,\s*the board is occupied by\s+Twisted\s+([A-Za-z&'.\s]+?)\s+Render",
-    r"Twisted of the Day\s+Twisted\s+([A-Za-z&'.\s]+?)\s+Render",
+    r"Currently,\s*the board is occupied by\s+Twisted\s+([^.]+?)\s*\.",
+    r"Twisted of the Day\s+Twisted\s+(.+?)\s+(?:Common|Uncommon|Rare|Main Character|Lethal|Event)\b",
 ]
 
 
@@ -37,16 +39,6 @@ def _extract_name(html_or_text):
 
 
 def get_twisted_of_the_day():
-    """
-    Finds the current Twisted on the Daily Twisted Board.
-
-    Fandom's CDN aggressively caches /wiki/ pages and ignores cache-busting
-    query strings, so plain requests to the article URL can return a stale
-    snapshot for hours after the board has rotated. The MediaWiki API
-    (api.php) is a different code path that isn't covered by that page
-    cache, so we try that first and only fall back to scraping the raw
-    article page if the API is unreachable.
-    """
     cache_buster = f"{int(time.time())}{random.randint(1000, 9999)}"
 
     # --- Attempt 1: MediaWiki API (bypasses the article-page CDN cache) ---
@@ -97,14 +89,13 @@ def send_discord_webhook(twisted_name, description):
         print("Error: DISCORD_WEBHOOK_URL variable is missing!")
         return
 
-    # Choose a custom embed color matching the character
     embed_color = 15158332  # Default Red/Orange
     if "Finn" in twisted_name:
-        embed_color = 3447003  # Light Blue for Finn
+        embed_color = 3447003
     elif "Sprout" in twisted_name:
-        embed_color = 3066993  # Green for Sprout
+        embed_color = 3066993
     elif "Toodles" in twisted_name:
-        embed_color = 10181046  # Purple/Pink for Toodles
+        embed_color = 10181046
 
     payload = {
         "content": "📢 **The Daily Twisted Board Has Safely Refreshed!** 📢",
@@ -114,20 +105,10 @@ def send_discord_webhook(twisted_name, description):
                 "description": description,
                 "color": embed_color,
                 "fields": [
-                    {
-                        "name": "Status Indicator",
-                        "value": "🟢 Spawn Rate Boost Active",
-                        "inline": True
-                    },
-                    {
-                        "name": "Target Channel",
-                        "value": "<#1519412969090318582>",
-                        "inline": True
-                    }
+                    {"name": "Status Indicator", "value": "🟢 Spawn Rate Boost Active", "inline": True},
+                    {"name": "Target Channel", "value": "<#1519412969090318582>", "inline": True}
                 ],
-                "footer": {
-                    "text": "Dandy's World Wiki Updates"
-                },
+                "footer": {"text": "Dandy's World Wiki Updates"},
                 "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             }
         ]
