@@ -7,54 +7,87 @@ from bs4 import BeautifulSoup
 
 # Grabs your URL securely from GitHub Secrets
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
-WIKI_URL = "https://dandys-world-robloxhorror.fandom.com/wiki/Daily_Twisted_Board"
+WIKI_DOMAIN = "https://dandys-world-robloxhorror.fandom.com"
+WIKI_PAGE = "Daily Twisted Board"
+API_URL = f"{WIKI_DOMAIN}/api.php"
+PAGE_URL = f"{WIKI_DOMAIN}/wiki/Daily_Twisted_Board"
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+}
+
+ANCHOR_PATTERNS = [
+    r"Currently,\s*the board is occupied by\s+Twisted\s+([A-Za-z&'.\s]+?)\s+Render",
+    r"Twisted of the Day\s+Twisted\s+([A-Za-z&'.\s]+?)\s+Render",
+]
+
+
+def _extract_name(html_or_text):
+    soup = BeautifulSoup(html_or_text, "html.parser")
+    page_text = soup.get_text(" ", strip=True)
+    page_text = re.sub(r"\s+", " ", page_text)
+
+    for pattern in ANCHOR_PATTERNS:
+        match = re.search(pattern, page_text)
+        if match:
+            return "Twisted " + match.group(1).strip()
+    return None
 
 
 def get_twisted_of_the_day():
     """
-    Finds the current Twisted on the Daily Twisted Board, by matching the
-    "Currently, the board is occupied by Twisted X" sentence (falls back to
-    the "Twisted of the Day" sidebar box if that text isn't found).
+    Finds the current Twisted on the Daily Twisted Board.
+
+    Fandom's CDN aggressively caches /wiki/ pages and ignores cache-busting
+    query strings, so plain requests to the article URL can return a stale
+    snapshot for hours after the board has rotated. The MediaWiki API
+    (api.php) is a different code path that isn't covered by that page
+    cache, so we try that first and only fall back to scraping the raw
+    article page if the API is unreachable.
     """
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-    }
+    cache_buster = f"{int(time.time())}{random.randint(1000, 9999)}"
 
-    # Cache-busting query param so Fandom's CDN doesn't hand back a stale
-    # cached copy of the page right after the daily rollover.
-    cache_buster = f"?nocache={int(time.time())}{random.randint(1000, 9999)}"
-
+    # --- Attempt 1: MediaWiki API (bypasses the article-page CDN cache) ---
     try:
-        response = requests.get(WIKI_URL + cache_buster, headers=headers, timeout=15)
+        params = {
+            "action": "parse",
+            "page": WIKI_PAGE,
+            "prop": "text",
+            "format": "json",
+            "formatversion": "2",
+            "disablelimitreport": "true",
+            "_": cache_buster,
+        }
+        response = requests.get(API_URL, headers=HEADERS, params=params, timeout=15)
         response.raise_for_status()
-
-        soup = BeautifulSoup(response.text, "html.parser")
-        # separator=" " avoids words from adjacent tags getting glued together
-        page_text = soup.get_text(" ", strip=True)
-        page_text = re.sub(r"\s+", " ", page_text)
-
-        # Primary pattern: "Currently, the board is occupied by Twisted X Render Twisted X."
-        match = re.search(
-            r"Currently,\s*the board is occupied by\s+Twisted\s+([A-Za-z&'.\s]+?)\s+Render",
-            page_text,
-        )
-
-        # Fallback: the "Twisted of the Day" sidebar widget
-        if not match:
-            match = re.search(
-                r"Twisted of the Day\s+Twisted\s+([A-Za-z&'.\s]+?)\s+Render",
-                page_text,
-            )
-
-        if match:
-            clean_name = "Twisted " + match.group(1).strip()
-            desc = f"The Daily Twisted Board has updated! **{clean_name}** has an increased spawn rate right now."
-            return clean_name, desc
-
+        data = response.json()
+        html = data.get("parse", {}).get("text", "")
+        name = _extract_name(html) if html else None
+        if name:
+            print(f"[API] Found: {name}")
+            desc = f"The Daily Twisted Board has updated! **{name}** has an increased spawn rate right now."
+            return name, desc
+        else:
+            print("[API] Reached the API but couldn't find the anchor sentence in the response.")
     except Exception as e:
-        print(f"Scraping error: {e}")
+        print(f"[API] Request failed: {e}")
+
+    # --- Attempt 2: Raw article page (fallback) ---
+    try:
+        url = f"{PAGE_URL}?nocache={cache_buster}"
+        response = requests.get(url, headers=HEADERS, timeout=15)
+        response.raise_for_status()
+        name = _extract_name(response.text)
+        if name:
+            print(f"[Page] Found: {name}")
+            desc = f"The Daily Twisted Board has updated! **{name}** has an increased spawn rate right now."
+            return name, desc
+        else:
+            print("[Page] Fetched the page but couldn't find the anchor sentence.")
+    except Exception as e:
+        print(f"[Page] Request failed: {e}")
 
     return "Unknown Character", "The script checked the page but couldn't locate the active character sentence block."
 
