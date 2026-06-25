@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 from bs4 import BeautifulSoup
 import time
@@ -7,10 +8,7 @@ import time
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 def get_twisted_of_the_day():
-    """
-    Robust scraping logic to pull the current active Twisted from the wiki page.
-    """
-    wiki_url = "https://dandys-world.fandom.com/wiki/Daily_Twisted_Board"
+    wiki_url = "https://dandys-world-robloxhorror.fandom.com/wiki/Daily_Twisted_Board"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
@@ -20,63 +18,62 @@ def get_twisted_of_the_day():
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Method 1: Target the precise paragraph statement
-            for p in soup.find_all('p'):
-                text_line = p.text.strip()
-                if "Currently, the board is occupied by" in text_line:
-                    # Isolate text after "occupied by"
-                    name_part = text_line.split("occupied by")[-1].strip()
-                    # Clean punctuation and extra countdown text strings
-                    name_part = name_part.split(".")[0].split("It will be")[0].strip()
-                    
-                    desc = f"The Daily Twisted Board has updated! Face off against **{name_part}** today for increased spawn rates."
-                    return name_part, desc
+            # Remove the weird hidden object replacement characters (￼) that break text splitting
+            clean_text = soup.get_text().replace('\ufffc', '')
             
-            # Method 2: Secondary check for the specific right-side infobox text if Method 1 fails
-            infobox = soup.find(text=lambda text: text and "Twisted of the Day" in text)
-            if infobox:
-                parent_section = infobox.find_parent(['div', 'table', 'aside'])
-                if parent_section:
-                    # Grabs headers or bold elements containing the active name
-                    for header in parent_section.find_all(['h2', 'h3', 'b', 'span']):
-                        header_text = header.text.strip()
-                        if "Twisted " in header_text and "Day" not in header_text:
-                            desc = f"Today's active character is **{header_text}**. Watch your back in the floors!"
-                            return header_text, desc
+            # Strategy 1: Look for "board is occupied by [Twisted Name]" anywhere on the page
+            match = re.search(r"board is occupied by\s+(Twisted\s+[A-Za-z\s&]+)", clean_text, re.IGNORECASE)
+            if match:
+                raw_name = match.group(1).strip()
+                # Clean up any trailing text like sentences or countdown details
+                cleaned_name = raw_name.split('.')[0].split('It will')[0].strip()
+                desc = f"The Daily Twisted Board has updated! Face off against **{cleaned_name}** today for increased spawn rates."
+                return cleaned_name, desc
+            
+            # Strategy 2: Fallback to the "Twisted of the Day" side panel layout
+            for element in soup.find_all(['div', 'table', 'aside']):
+                element_text = element.get_text().replace('\ufffc', '')
+                if "Twisted of the Day" in element_text:
+                    lines = [line.strip() for line in element_text.split('\n') if line.strip()]
+                    for line in lines:
+                        # Find the line inside the box that actually states the Twisted character
+                        if line.startswith("Twisted ") and "Twisted of the Day" not in line:
+                            desc = f"Today's active board character is **{line}**. Watch your back on the floors!"
+                            return line, desc
 
     except Exception as e:
         print(f"Scraping processing issue: {e}")
         
-    return "Unknown/Dynamic Search Failed", "The script checked the page but couldn't parse the layout safely. Check the wiki directly!"
+    return "Unknown Character", "The script checked the page but the Wiki layout is currently hidden or undergoing heavy edits!"
 
 def send_discord_webhook(twisted_name, description):
     if not WEBHOOK_URL:
         print("Error: DISCORD_WEBHOOK_URL variable is empty!")
         return
 
-    # Dynamic styling customization based on character type hints
-    embed_color = 15158332  # Red/Orange default
+    # Dynamic color themes based on who is on the board
+    embed_color = 15158332  # Default Red/Orange
     if "Toodles" in twisted_name:
-        embed_color = 3447003  # Blue for Toodles
+        embed_color = 3447003  # Blue
     elif "Sprout" in twisted_name:
-        embed_color = 3066993  # Green for Sprout
+        embed_color = 3066993  # Green
 
     payload = {
-        "content": "📢 **The Daily Twisted Board Has Safely Refreshed!** 📢",
+        "content": "📢 **The Daily Twisted Board Has Successfully Refreshed!** 📢",
         "embeds": [
             {
-                "title": f"✨ Board Target: {twisted_name} ✨",
+                "title": f"✨ Current Target: {twisted_name} ✨",
                 "description": description,
                 "color": embed_color, 
                 "fields": [
                     {
-                        "name": "Live Status",
-                        "value": "🟢 Spawn Probability Increased",
+                        "name": "Status",
+                        "value": "🟢 Spawn Rate Multiplier Active",
                         "inline": True
                     },
                     {
-                        "name": "Tracking Channel",
-                        "value": "<#1519412969090318582>",
+                        "name": "Reset Info",
+                        "value": "Updates every 24 Hours",
                         "inline": True
                     }
                 ],
@@ -92,7 +89,7 @@ def send_discord_webhook(twisted_name, description):
     if response.status_code == 204:
         print(f"Successfully posted {twisted_name} update to Discord!")
     else:
-        print(f"Failed to post. Response payload code: {response.status_code}")
+        print(f"Failed to post. Response code: {response.status_code}")
 
 if __name__ == "__main__":
     name, desc = get_twisted_of_the_day()
