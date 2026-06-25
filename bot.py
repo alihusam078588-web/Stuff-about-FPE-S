@@ -1,55 +1,63 @@
 import os
+import re
+import time
+import random
 import requests
 from bs4 import BeautifulSoup
-import time
 
 # Grabs your URL securely from GitHub Secrets
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+WIKI_URL = "https://dandys-world-robloxhorror.fandom.com/wiki/Daily_Twisted_Board"
+
 
 def get_twisted_of_the_day():
     """
-    Finds the exact anchor text "is more likely to spawn until" on the Miraheze wiki,
-    and extracts the Twisted name right before it.
+    Finds the current Twisted on the Daily Twisted Board, by matching the
+    "Currently, the board is occupied by Twisted X" sentence (falls back to
+    the "Twisted of the Day" sidebar box if that text isn't found).
     """
-    wiki_url = "https://dandysworld.miraheze.org/wiki/Daily_Twisted_Board#Daily_Twisted_Board"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
     }
-    
+
+    # Cache-busting query param so Fandom's CDN doesn't hand back a stale
+    # cached copy of the page right after the daily rollover.
+    cache_buster = f"?nocache={int(time.time())}{random.randint(1000, 9999)}"
+
     try:
-        response = requests.get(wiki_url, headers=headers)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Get ALL the text on the page as one single continuous block
-            page_text = soup.get_text()
-            
-            # Look for your "Read phrase" anchor
-            anchor_phrase = "is more likely to spawn until"
-            
-            if anchor_phrase in page_text:
-                # Split the entire page text at the anchor phrase
-                # parts[0] will contain everything BEFORE "is more likely to spawn until"
-                parts = page_text.split(anchor_phrase)
-                text_before_anchor = parts[0].strip()
-                
-                # Take the very last line of text right before our anchor phrase
-                lines = text_before_anchor.split('\n')
-                last_line = lines[-1].strip()
-                
-                # If there are trailing spaces or weird symbols, clean down to the name
-                if "Twisted" in last_line:
-                    # Isolate from the word "Twisted" onward
-                    start_pos = last_line.find("Twisted")
-                    clean_name = last_line[start_pos:].strip()
-                    
-                    desc = f"The Daily Twisted Board has updated! **{clean_name}** has an increased spawn rate right now."
-                    return clean_name, desc
-                    
+        response = requests.get(WIKI_URL + cache_buster, headers=headers, timeout=15)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        # separator=" " avoids words from adjacent tags getting glued together
+        page_text = soup.get_text(" ", strip=True)
+        page_text = re.sub(r"\s+", " ", page_text)
+
+        # Primary pattern: "Currently, the board is occupied by Twisted X Render Twisted X."
+        match = re.search(
+            r"Currently,\s*the board is occupied by\s+Twisted\s+([A-Za-z&'.\s]+?)\s+Render",
+            page_text,
+        )
+
+        # Fallback: the "Twisted of the Day" sidebar widget
+        if not match:
+            match = re.search(
+                r"Twisted of the Day\s+Twisted\s+([A-Za-z&'.\s]+?)\s+Render",
+                page_text,
+            )
+
+        if match:
+            clean_name = "Twisted " + match.group(1).strip()
+            desc = f"The Daily Twisted Board has updated! **{clean_name}** has an increased spawn rate right now."
+            return clean_name, desc
+
     except Exception as e:
         print(f"Scraping error: {e}")
-        
+
     return "Unknown Character", "The script checked the page but couldn't locate the active character sentence block."
+
 
 def send_discord_webhook(twisted_name, description):
     if not WEBHOOK_URL:
@@ -71,7 +79,7 @@ def send_discord_webhook(twisted_name, description):
             {
                 "title": f"✨ Current Target: {twisted_name} ✨",
                 "description": description,
-                "color": embed_color, 
+                "color": embed_color,
                 "fields": [
                     {
                         "name": "Status Indicator",
@@ -85,7 +93,7 @@ def send_discord_webhook(twisted_name, description):
                     }
                 ],
                 "footer": {
-                    "text": "Dandy's World Miraheze Updates"
+                    "text": "Dandy's World Wiki Updates"
                 },
                 "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             }
@@ -97,6 +105,7 @@ def send_discord_webhook(twisted_name, description):
         print(f"Successfully posted {twisted_name} notice straight to Discord!")
     else:
         print(f"Failed to send webhook. Response code: {response.status_code}")
+
 
 if __name__ == "__main__":
     name, desc = get_twisted_of_the_day()
